@@ -81,7 +81,7 @@ class ResizeBicubicOpTest : public OpsTestBase {
 
   // Used in the baseline implementation
   inline int64 Bound(int64 val, int64 limit) {
-    return std::min(limit - 1ll, std::max(0ll, val));
+    return std::min(limit - 1ll, std::max(int64{0}, val));
   }
 
   // Used in the baseline implementation
@@ -219,7 +219,7 @@ TEST_F(ResizeBicubicOpTest, TestBicubic2x2To0x0) {
   AddInputFromArray<int32>(TensorShape({2}), {0, 0});
 
   Status s = RunOpKernel();
-  EXPECT_TRUE(str_util::StrContains(
+  EXPECT_TRUE(absl::StrContains(
       s.ToString(), "Invalid argument: output dimensions must be positive"))
       << s;
 }

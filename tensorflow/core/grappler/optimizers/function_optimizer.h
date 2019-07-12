@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_GRAPPLER_OPTIMIZERS_FUNCTION_OPTIMIZER_H_
-#define TENSORFLOW_GRAPPLER_OPTIMIZERS_FUNCTION_OPTIMIZER_H_
+#ifndef TENSORFLOW_CORE_GRAPPLER_OPTIMIZERS_FUNCTION_OPTIMIZER_H_
+#define TENSORFLOW_CORE_GRAPPLER_OPTIMIZERS_FUNCTION_OPTIMIZER_H_
 
 #include "tensorflow/core/grappler/optimizers/graph_optimizer.h"
 #include "tensorflow/core/protobuf/rewriter_config.pb.h"
@@ -26,8 +26,9 @@ namespace grappler {
 // operations to make the overall graph more efficient.
 class FunctionOptimizer : public GraphOptimizer {
  public:
-  FunctionOptimizer(RewriterConfig::Toggle opt_level) : opt_level_(opt_level) {}
-  ~FunctionOptimizer() override {}
+  explicit FunctionOptimizer(RewriterConfig::Toggle opt_level)
+      : opt_level_(opt_level) {}
+  ~FunctionOptimizer() override = default;
 
   string name() const override { return "function_optimizer"; };
 
@@ -38,10 +39,20 @@ class FunctionOptimizer : public GraphOptimizer {
                 const GraphDef& optimized_graph, double result) override;
 
  private:
+  friend class FunctionOptimizerTest;
+
+  // Runs a single function optimizer pass over the `graph`. All nodes that are
+  // not function calls will be copied from the `graph` to the
+  // `optimized_graph`. Function call nodes inlined or specialized, and
+  // instantiated function body or specialized function call nodes will be added
+  // to the `optimized_graph`.
+  Status RunFunctionOptimizerPass(const GrapplerItem& item,
+                                  GraphDef* optimized_graph) const;
+
   RewriterConfig::Toggle opt_level_;
 };
 
 }  // end namespace grappler
 }  // end namespace tensorflow
 
-#endif  // TENSORFLOW_GRAPPLER_OPTIMIZERS_FUNCTION_OPTIMIZER_H_
+#endif  // TENSORFLOW_CORE_GRAPPLER_OPTIMIZERS_FUNCTION_OPTIMIZER_H_

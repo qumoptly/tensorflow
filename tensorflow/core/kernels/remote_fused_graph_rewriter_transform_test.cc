@@ -18,6 +18,7 @@ limitations under the License.
 #include "tensorflow/cc/ops/nn_ops.h"
 #include "tensorflow/cc/ops/standard_ops.h"
 #include "tensorflow/core/common_runtime/function.h"
+#include "tensorflow/core/framework/remote_fused_graph_execute_info.pb.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/tensor_testutil.h"
 #include "tensorflow/core/graph/default_device.h"
@@ -182,7 +183,7 @@ class FuseRemoteGraphMultipleAddOpsRewriterTest : public ::testing::Test {
     int cluster_count = 0;
     for (const NodeDef& node_def : output_graph_def_.node()) {
       const string& name = node_def.name();
-      if (str_util::StartsWith(name, REMOTE_FUSED_GRAPH_NODE_NAME)) {
+      if (absl::StartsWith(name, REMOTE_FUSED_GRAPH_NODE_NAME)) {
         ++cluster_count;
         RemoteFusedGraphExecuteInfo info;
         string serialized_proto;

@@ -18,6 +18,7 @@ limitations under the License.
 %{
   #include <memory>
   #include <vector>
+  #include "tensorflow/c/tf_status.h"
   #include "tensorflow/core/platform/types.h"
   using tensorflow::uint64;
   using tensorflow::string;
@@ -230,10 +231,12 @@ _COPY_TYPEMAPS(unsigned int, mode_t);
 %define override %enddef
 #endif
 
+%include "tensorflow/c/tf_status.h"
+
 // Typemaps to automatically raise a Python exception from bad output TF_Status.
 // TODO(b/77295559): expand this to all TF_Status* output params and deprecate
 // raise_exception_on_not_ok_status (currently it only affects the C API).
-%typemap(in, numinputs=0) TF_Status* status (TF_Status* status) {
+%typemap(in, numinputs=0) TF_Status* status {
   $1 = TF_NewStatus();
 }
 

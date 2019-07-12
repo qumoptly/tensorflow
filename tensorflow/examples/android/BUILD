@@ -1,14 +1,15 @@
 # Description:
 #   TensorFlow camera demo app for Android.
 
-package(default_visibility = ["//visibility:public"])
-
-licenses(["notice"])  # Apache 2.0
-
+load("@build_bazel_rules_android//android:rules.bzl", "android_binary")
 load(
     "//tensorflow:tensorflow.bzl",
     "tf_copts",
-    "tf_opts_nortti_if_android",
+)
+
+package(
+    default_visibility = ["//visibility:public"],
+    licenses = ["notice"],  # Apache 2.0
 )
 
 exports_files(["LICENSE"])
@@ -35,8 +36,7 @@ cc_binary(
         "-lm",
         "-z defs",
         "-s",
-        "-Wl,--version-script",  # This line must be directly followed by LINKER_SCRIPT.
-        LINKER_SCRIPT,
+        "-Wl,--version-script,$(location {})".format(LINKER_SCRIPT),
     ],
     linkshared = 1,
     linkstatic = 1,
@@ -66,6 +66,7 @@ android_binary(
     srcs = glob([
         "src/**/*.java",
     ]),
+    aapt_version = "aapt2",
     # Package assets from assets dir as well as all model targets. Remove undesired models
     # (and corresponding Activities in source) to reduce APK size.
     assets = [
