@@ -26,6 +26,7 @@ from tensorflow.python.feature_column import feature_column_lib as fc
 from tensorflow.python.keras import keras_parameterized
 from tensorflow.python.keras import metrics as metrics_module
 from tensorflow.python.keras import testing_utils
+from tensorflow.python.keras.utils import np_utils
 from tensorflow.python.platform import test
 
 
@@ -63,7 +64,7 @@ class FeatureColumnsIntegrationTest(keras_parameterized.TestCase):
 
     x = {'a': np.random.random((10, 1))}
     y = np.random.randint(20, size=(10, 1))
-    y = keras.utils.to_categorical(y, num_classes=20)
+    y = np_utils.to_categorical(y, num_classes=20)
     model.fit(x, y, epochs=1, batch_size=5)
     model.fit(x, y, epochs=1, batch_size=5)
     model.evaluate(x, y, batch_size=5)
@@ -84,7 +85,7 @@ class FeatureColumnsIntegrationTest(keras_parameterized.TestCase):
         run_eagerly=testing_utils.should_run_eagerly())
 
     y = np.random.randint(20, size=(100, 1))
-    y = keras.utils.to_categorical(y, num_classes=20)
+    y = np_utils.to_categorical(y, num_classes=20)
     x = {'a': np.random.random((100, 1))}
     ds1 = dataset_ops.Dataset.from_tensor_slices(x)
     ds2 = dataset_ops.Dataset.from_tensor_slices(y)
@@ -148,7 +149,7 @@ class FeatureColumnsIntegrationTest(keras_parameterized.TestCase):
 
     x = {'a': np.random.random((10, 1)), 'b': np.random.random((10, 1))}
     y = np.random.randint(20, size=(10, 1))
-    y = keras.utils.to_categorical(y, num_classes=20)
+    y = np_utils.to_categorical(y, num_classes=20)
     dnn_model.fit(x=x, y=y, epochs=1, batch_size=5)
     dnn_model.fit(x=x, y=y, epochs=1, batch_size=5)
     dnn_model.evaluate(x=x, y=y, batch_size=5)
@@ -168,7 +169,7 @@ class FeatureColumnsIntegrationTest(keras_parameterized.TestCase):
         run_eagerly=testing_utils.should_run_eagerly())
 
     y = np.random.randint(20, size=(100, 1))
-    y = keras.utils.to_categorical(y, num_classes=20)
+    y = np_utils.to_categorical(y, num_classes=20)
     x = {'a': np.random.random((100, 1)), 'b': np.random.random((100, 1))}
     ds1 = dataset_ops.Dataset.from_tensor_slices(x)
     ds2 = dataset_ops.Dataset.from_tensor_slices(y)
@@ -203,7 +204,7 @@ class FeatureColumnsIntegrationTest(keras_parameterized.TestCase):
         loss_weights=loss_weights)
 
     data = ({'a': np.arange(10), 'b': np.arange(10)}, np.arange(10, 20))
-    print(model.fit(*data, epochs=1))
+    model.fit(*data, epochs=1)
 
   # TODO(kaftan) seems to throw an error when enabled.
   @keras_parameterized.run_all_keras_modes
@@ -238,7 +239,7 @@ class FeatureColumnsIntegrationTest(keras_parameterized.TestCase):
         'b': np.arange(10),
         'c': np.arange(10)
     }], np.arange(10, 100))
-    print(model.fit(*data_list, epochs=1))
+    model.fit(*data_list, epochs=1)
 
     data_bloated_list = ([{
         'a': np.arange(10),
@@ -249,7 +250,7 @@ class FeatureColumnsIntegrationTest(keras_parameterized.TestCase):
         'b': np.arange(10),
         'c': np.arange(10)
     }], np.arange(10, 100))
-    print(model.fit(*data_bloated_list, epochs=1))
+    model.fit(*data_bloated_list, epochs=1)
 
     data_dict = ({
         'fc1': {
@@ -261,7 +262,7 @@ class FeatureColumnsIntegrationTest(keras_parameterized.TestCase):
             'c': np.arange(10)
         }
     }, np.arange(10, 100))
-    print(model.fit(*data_dict, epochs=1))
+    model.fit(*data_dict, epochs=1)
 
     data_bloated_dict = ({
         'fc1': {
@@ -275,7 +276,7 @@ class FeatureColumnsIntegrationTest(keras_parameterized.TestCase):
             'c': np.arange(10)
         }
     }, np.arange(10, 100))
-    print(model.fit(*data_bloated_dict, epochs=1))
+    model.fit(*data_bloated_dict, epochs=1)
 
   @keras_parameterized.run_all_keras_modes
   def test_string_input(self):
@@ -293,7 +294,7 @@ class FeatureColumnsIntegrationTest(keras_parameterized.TestCase):
               keras.layers.Dense(1)]
 
     model = keras.models.Sequential(layers)
-    model.compile(keras.optimizers.SGD(0.1),
+    model.compile(optimizer='sgd',
                   loss=keras.losses.BinaryCrossentropy())
     model.fit(dataset)
 

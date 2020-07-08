@@ -27,6 +27,7 @@ limitations under the License.
 #include "tensorflow/compiler/xla/service/dfs_hlo_visitor_with_default.h"
 #include "tensorflow/compiler/xla/service/heap_simulator.h"
 #include "tensorflow/compiler/xla/service/hlo_computation.h"
+#include "tensorflow/compiler/xla/service/hlo_opcode.h"
 #include "tensorflow/compiler/xla/service/hlo_schedule.h"
 #include "tensorflow/compiler/xla/service/tuple_points_to_analysis.h"
 #include "tensorflow/compiler/xla/shape_util.h"
@@ -68,7 +69,7 @@ using ::tensorflow::strings::HumanReadableNumBytes;
 //   A D E F B C G
 // , which has a maximum memory usage of 6 (B is alive while F is executing).
 //
-// An optimal way to shedule the previous graph is:
+// An optimal way to schedule the previous graph is:
 //   A B C D E F G
 // , which has a maximum memory usage of 5 (when F is executing).
 //
@@ -211,6 +212,18 @@ class ListScheduler {
   // improve accounting for subcomputation memory (b/65409243).
   int64 BytesFreedIfScheduled(const ReadyListEntry& entry) {
     auto instruction = entry.instruction;
+    auto opcode = instruction->opcode();
+
+    // Scheduling the outfeed early and the infeed late gives more time to the
+    // communicating processor to do its work.
+    if (opcode == HloOpcode::kOutfeed &&
+        !instruction->outfeed_config().empty()) {
+      return INT_MAX;
+    }
+    if (opcode == HloOpcode::kInfeed && !instruction->infeed_config().empty()) {
+      return INT_MIN;
+    }
+
     int64 freed_bytes = 0;
     for (const auto& kv : entry.used_buffer_unscheduled_use_counts) {
       auto buffer = kv->first;
@@ -232,7 +245,6 @@ class ListScheduler {
       }
     }
     int64 bytes_defined;
-    auto opcode = instruction->opcode();
     if (max_subcomputation_bytes > 0 &&
         (opcode == HloOpcode::kWhile || opcode == HloOpcode::kCall ||
          opcode == HloOpcode::kConditional)) {
@@ -500,6 +512,33 @@ StatusOr<HloInstructionSequence> DFSMemoryScheduler(
   return sequence;
 }  // namespace xla
 
+ModuleSchedulerAlgorithm ComputationSchedulerToModuleScheduler(
+    const MemorySchedulerAlgorithm& computation_scheduler) {
+  return [computation_scheduler](
+             HloModule* module, const TuplePointsToAnalysis& points_to_analysis,
+             const HloAliasAnalysis& alias_analysis,
+             const LogicalBuffer::SizeFunction& size_func,
+             int64* peak_memory) -> StatusOr<HloSchedule> {
+    HloSchedule schedule(module);
+    absl::flat_hash_map<const HloComputation*, int64> memory_by_computation;
+    for (auto* computation : module->MakeComputationPostOrder()) {
+      if (!computation->IsFusionComputation()) {
+        TF_ASSIGN_OR_RETURN(
+            HloInstructionSequence computation_sequence,
+            ScheduleComputationHelper(
+                computation, points_to_analysis, alias_analysis, size_func,
+                computation_scheduler, memory_by_computation, nullptr));
+        schedule.set_sequence(computation, std::move(computation_sequence));
+      }
+    }
+    if (peak_memory) {
+      TF_ASSIGN_OR_RETURN(*peak_memory, HeapSimulator::MinimumMemoryForModule(
+                                            schedule, size_func));
+    }
+    return std::move(schedule);
+  };
+}
+
 StatusOr<HloInstructionSequence> ListMemoryScheduler(
     HloComputation* computation,
     const TuplePointsToAnalysis& points_to_analysis,
@@ -597,36 +636,75 @@ StatusOr<HloInstructionSequence> DefaultMemoryScheduler(
   }
 }
 
+StatusOr<HloSchedule> DefaultModuleScheduler(
+    HloModule* module, const TuplePointsToAnalysis& points_to_analysis,
+    const HloAliasAnalysis& alias_analysis,
+    const BufferValue::SizeFunction& size_function, int64* peak_memory) {
+  // We try a few schedulers and choose whichever returns a lower min-memory,
+  // not accounting for fragmentation.
+  // - List is a scheduler that uses greedy heuristics.
+  // - DFS visits HLOs in postorder, with a heuristic to decide the order of
+  //   children.
+  // - Postorder does not use any heuristics.
+  // List wins for most of our benchmarks; postorder-based schedulers win for
+  // some RNNs.
+  int64 list_memory;
+  TF_ASSIGN_OR_RETURN(
+      HloSchedule list_sequence,
+      ComputationSchedulerToModuleScheduler(ListMemoryScheduler)(
+          module, points_to_analysis, alias_analysis, size_function,
+          &list_memory));
+
+  VLOG(2) << "Min-memory list sequence: " << HumanReadableNumBytes(list_memory);
+
+  int64 dfs_memory;
+  TF_ASSIGN_OR_RETURN(HloSchedule dfs_sequence,
+                      ComputationSchedulerToModuleScheduler(DFSMemoryScheduler)(
+                          module, points_to_analysis, alias_analysis,
+                          size_function, &dfs_memory));
+  VLOG(2) << "Min-memory dfs sequence: " << HumanReadableNumBytes(dfs_memory);
+
+  int64 post_order_memory;
+  TF_ASSIGN_OR_RETURN(
+      HloSchedule post_order_sequence,
+      ComputationSchedulerToModuleScheduler(PostOrderMemoryScheduler)(
+          module, points_to_analysis, alias_analysis, size_function,
+          &post_order_memory));
+  VLOG(2) << "Min-memory post order sequence: "
+          << HumanReadableNumBytes(post_order_memory);
+
+  auto min_memory = std::min({dfs_memory, post_order_memory, list_memory});
+  if (peak_memory) {
+    *peak_memory = min_memory;
+  }
+
+  if (min_memory == list_memory) {
+    VLOG(2) << "Chose min-memory list sequence: "
+            << HumanReadableNumBytes(list_memory);
+    return list_sequence;
+  } else if (min_memory == dfs_memory) {
+    VLOG(2) << "Chose min-memory dfs sequence: "
+            << HumanReadableNumBytes(dfs_memory);
+    return dfs_sequence;
+  } else {
+    VLOG(2) << "Chose min-memory post_order sequence: "
+            << HumanReadableNumBytes(post_order_memory);
+    return post_order_sequence;
+  }
+}
+
 StatusOr<HloSchedule> ScheduleModule(
     HloModule* module, const BufferValue::SizeFunction& size_function,
-    const MemorySchedulerAlgorithm& algorithm, int64* peak_memory) {
-  HloSchedule schedule(module);
+    const ModuleSchedulerAlgorithm& algorithm, int64* peak_memory) {
   TF_ASSIGN_OR_RETURN(std::unique_ptr<TuplePointsToAnalysis> points_to_analysis,
                       TuplePointsToAnalysis::Run(module));
   TF_ASSIGN_OR_RETURN(std::unique_ptr<HloAliasAnalysis> alias_analysis,
                       HloAliasAnalysis::Run(module));
 
-  absl::flat_hash_map<const HloComputation*, int64> memory_by_computation;
-  for (auto* computation : module->MakeComputationPostOrder()) {
-    if (!computation->IsFusionComputation()) {
-      int64 computation_peak_memory;
-      TF_ASSIGN_OR_RETURN(
-          HloInstructionSequence computation_sequence,
-          ScheduleComputationHelper(
-              computation, *points_to_analysis, *alias_analysis, size_function,
-              algorithm, memory_by_computation, &computation_peak_memory));
-      memory_by_computation[computation] = computation_peak_memory;
-      schedule.set_sequence(computation, std::move(computation_sequence));
-    }
-  }
-  VLOG(1) << "Module schedule:\n" << schedule;
-
-  if (peak_memory) {
-    *peak_memory = 0;
-    for (const auto& computation_and_peak : memory_by_computation) {
-      *peak_memory = std::max(*peak_memory, computation_and_peak.second);
-    }
-  }
+  TF_ASSIGN_OR_RETURN(HloSchedule schedule,
+                      (algorithm ? algorithm : DefaultModuleScheduler)(
+                          module, *points_to_analysis, *alias_analysis,
+                          size_function, peak_memory));
 
   TF_RETURN_IF_ERROR(schedule.Verify());
 
@@ -649,7 +727,7 @@ StatusOr<HloInstructionSequence> ScheduleComputation(
 
 HloMemoryScheduler::HloMemoryScheduler(
     const BufferValue::SizeFunction& size_function,
-    const MemorySchedulerAlgorithm& algorithm)
+    const ModuleSchedulerAlgorithm& algorithm)
     : size_function_(size_function), algorithm_(algorithm) {}
 
 StatusOr<bool> HloMemoryScheduler::Run(HloModule* module) {

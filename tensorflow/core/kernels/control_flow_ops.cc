@@ -54,6 +54,12 @@ void SwitchNOp::Compute(OpKernelContext* context) {
 
 REGISTER_KERNEL_BUILDER(
     Name("Switch").Device(DEVICE_DEFAULT).HostMemory("pred"), SwitchOp);
+REGISTER_KERNEL_BUILDER(
+    Name("Switch").Device(DEVICE_TPU_SYSTEM).HostMemory("pred"), SwitchOp);
+
+REGISTER_KERNEL_BUILDER(
+    Name("_SwitchN").Device(DEVICE_DEFAULT).HostMemory("output_index"),
+    SwitchNOp);
 
 #define REGISTER_CPU_SWITCH(type)                         \
   REGISTER_KERNEL_BUILDER(Name("Switch")                  \
@@ -97,23 +103,23 @@ TF_CALL_ALL_TYPES(REGISTER_CPU_SWITCH);
 TF_CALL_ALL_TYPES(REGISTER_CPU_REF_SWITCH);
 TF_CALL_QUANTIZED_TYPES(REGISTER_CPU_SWITCH);
 TF_CALL_QUANTIZED_TYPES(REGISTER_CPU_REF_SWITCH);
-REGISTER_CPU_SWITCH(uint64);
 
 TF_CALL_NUMBER_TYPES_NO_INT32(REGISTER_GPU_SWITCH);
 TF_CALL_QUANTIZED_TYPES(REGISTER_GPU_SWITCH);
 TF_CALL_NUMBER_TYPES_NO_INT32(REGISTER_GPU_REF_SWITCH);
 TF_CALL_QUANTIZED_TYPES(REGISTER_GPU_REF_SWITCH);
-REGISTER_GPU_SWITCH(uint64);
 TF_CALL_variant(REGISTER_GPU_SWITCH);
+TF_CALL_bool(REGISTER_GPU_SWITCH);
+TF_CALL_bool(REGISTER_GPU_REF_SWITCH);
 
 #undef REGISTER_CPU_SWITCH
 #undef REGISTER_CPU_REF_SWITCH
 #undef REGISTER_GPU_SWITCH
 #undef REGISTER_GPU_REF_SWITCH
 
-// Special GPU kernels for int32 and string.
-// TODO(b/25387198): Also enable int32 in device memory. This kernel
-// registration requires all int32 inputs and outputs to be in host memory.
+// Special GPU kernels for int32, string & resource handles. Requiring all
+// inputs and outputs to be in host memory.
+// TODO(b/25387198): Also enable int32 in device memory.
 #define REGISTER_GPU_HOST_KERNEL(type)                    \
   REGISTER_KERNEL_BUILDER(Name("Switch")                  \
                               .Device(DEVICE_GPU)         \
@@ -143,10 +149,8 @@ TF_CALL_variant(REGISTER_GPU_SWITCH);
 
 REGISTER_GPU_HOST_KERNEL(int32);
 REGISTER_GPU_HOST_REF_KERNEL(int32);
-REGISTER_GPU_HOST_KERNEL(bool);
-REGISTER_GPU_HOST_REF_KERNEL(bool);
-REGISTER_GPU_HOST_KERNEL(string);
-REGISTER_GPU_HOST_REF_KERNEL(string);
+REGISTER_GPU_HOST_KERNEL(tstring);
+REGISTER_GPU_HOST_REF_KERNEL(tstring);
 REGISTER_GPU_HOST_KERNEL(ResourceHandle);
 
 #undef REGISTER_GPU_HOST_KERNEL
@@ -183,7 +187,7 @@ TF_CALL_REAL_NUMBER_TYPES_NO_INT32(REGISTER_SYCL_REF_SWITCH);
                           SwitchOp)
 
 REGISTER_SYCL_HOST_KERNEL(bool);
-REGISTER_SYCL_HOST_KERNEL(string);
+REGISTER_SYCL_HOST_KERNEL(tstring);
 REGISTER_SYCL_HOST_KERNEL(int32);
 
 #define REGISTER_SYCL_HOST_REF_KERNEL(type)               \
@@ -198,7 +202,7 @@ REGISTER_SYCL_HOST_KERNEL(int32);
 
 REGISTER_SYCL_HOST_REF_KERNEL(int32);
 REGISTER_SYCL_HOST_REF_KERNEL(bool);
-REGISTER_SYCL_HOST_REF_KERNEL(string);
+REGISTER_SYCL_HOST_REF_KERNEL(tstring);
 
 #undef REGISTER_SYCL_HOST_KERNEL
 #undef REGISTER_SYCL_HOST_REF_KERNEL
@@ -268,10 +272,14 @@ void MergeOp::Compute(OpKernelContext* context) {
       } else {
         context->set_output(0, context->input(i));
       }
-      Tensor* value_index = nullptr;
-      OP_REQUIRES_OK(
-          context, context->allocate_output(1, TensorShape({}), &value_index));
-      value_index->scalar<int32>()() = i;
+      // The value_index output is typically used only in gradient calculations,
+      // so we can avoid allocating in many inference workloads.
+      if (context->output_required(1)) {
+        Tensor* value_index = nullptr;
+        OP_REQUIRES_OK(context, context->allocate_output(1, TensorShape({}),
+                                                         &value_index));
+        value_index->scalar<int32>()() = i;
+      }
     }
   }
 }
@@ -279,6 +287,8 @@ void MergeOp::Compute(OpKernelContext* context) {
 REGISTER_KERNEL_BUILDER(Name("Merge").Device(DEVICE_CPU), MergeOp);
 REGISTER_KERNEL_BUILDER(
     Name("Merge").Device(DEVICE_DEFAULT).HostMemory("value_index"), MergeOp);
+REGISTER_KERNEL_BUILDER(
+    Name("Merge").Device(DEVICE_TPU_SYSTEM).HostMemory("value_index"), MergeOp);
 REGISTER_KERNEL_BUILDER(Name("RefMerge").Device(DEVICE_CPU), MergeOp);
 
 #define REGISTER_GPU_KERNEL(type)                         \
@@ -301,7 +311,6 @@ TF_CALL_QUANTIZED_TYPES(REGISTER_GPU_KERNEL);
 TF_CALL_QUANTIZED_TYPES(REGISTER_GPU_REF_KERNEL);
 REGISTER_GPU_KERNEL(bool);
 REGISTER_GPU_REF_KERNEL(bool);
-REGISTER_GPU_KERNEL(uint64);
 TF_CALL_variant(REGISTER_GPU_KERNEL);
 
 #undef REGISTER_GPU_KERNEL
@@ -350,7 +359,7 @@ TF_CALL_NUMBER_TYPES_NO_INT32(REGISTER_SYCL_REF_KERNEL);
                           MergeOp)
 
 REGISTER_GPU_HOST_KERNEL(int32);
-REGISTER_GPU_HOST_KERNEL(string);
+REGISTER_GPU_HOST_KERNEL(tstring);
 REGISTER_GPU_HOST_KERNEL(ResourceHandle);
 
 #undef REGISTER_GPU_HOST_KERNEL
@@ -373,7 +382,7 @@ REGISTER_GPU_HOST_KERNEL(ResourceHandle);
                           MergeOp)
 
 REGISTER_SYCL_HOST_KERNEL(int32);
-REGISTER_SYCL_HOST_KERNEL(string);
+REGISTER_SYCL_HOST_KERNEL(tstring);
 REGISTER_SYCL_HOST_KERNEL(ResourceHandle);
 
 #undef REGISTER_SYCL_HOST_KERNEL
@@ -388,6 +397,7 @@ void EnterOp::Compute(OpKernelContext* context) {
 }
 
 REGISTER_KERNEL_BUILDER(Name("Enter").Device(DEVICE_DEFAULT), EnterOp);
+REGISTER_KERNEL_BUILDER(Name("Enter").Device(DEVICE_TPU_SYSTEM), EnterOp);
 REGISTER_KERNEL_BUILDER(Name("RefEnter").Device(DEVICE_CPU), EnterOp);
 
 #define REGISTER_GPU_KERNEL(type) \
@@ -439,8 +449,8 @@ TF_CALL_NUMBER_TYPES_NO_INT32(REGISTER_SYCL_REF_KERNEL);
 
 REGISTER_SYCL_HOST_KERNEL(int32);
 REGISTER_SYCL_HOST_REF_KERNEL(int32);
-REGISTER_SYCL_HOST_KERNEL(string);
-REGISTER_SYCL_HOST_REF_KERNEL(string);
+REGISTER_SYCL_HOST_KERNEL(tstring);
+REGISTER_SYCL_HOST_REF_KERNEL(tstring);
 REGISTER_SYCL_HOST_KERNEL(ResourceHandle);
 
 #undef REGISTER_SYCL_HOST_KERNEL
@@ -468,8 +478,8 @@ REGISTER_SYCL_HOST_KERNEL(ResourceHandle);
 
 REGISTER_GPU_HOST_KERNEL(int32);
 REGISTER_GPU_HOST_REF_KERNEL(int32);
-REGISTER_GPU_HOST_KERNEL(string);
-REGISTER_GPU_HOST_REF_KERNEL(string);
+REGISTER_GPU_HOST_KERNEL(tstring);
+REGISTER_GPU_HOST_REF_KERNEL(tstring);
 REGISTER_GPU_HOST_KERNEL(ResourceHandle);
 
 #undef REGISTER_GPU_HOST_KERNEL
@@ -484,6 +494,7 @@ void ExitOp::Compute(OpKernelContext* context) {
 }
 
 REGISTER_KERNEL_BUILDER(Name("Exit").Device(DEVICE_DEFAULT), ExitOp);
+REGISTER_KERNEL_BUILDER(Name("Exit").Device(DEVICE_TPU_SYSTEM), ExitOp);
 REGISTER_KERNEL_BUILDER(Name("RefExit").Device(DEVICE_CPU), ExitOp);
 
 #define REGISTER_GPU_KERNEL(type) \
@@ -529,7 +540,7 @@ TF_CALL_NUMBER_TYPES_NO_INT32(REGISTER_SYCL_KERNEL);
                           ExitOp)
 
 REGISTER_SYCL_HOST_KERNEL(int32);
-REGISTER_SYCL_HOST_KERNEL(string);
+REGISTER_SYCL_HOST_KERNEL(tstring);
 #undef REGISTER_SYCL_HOST_KERNEL
 #endif  // TENSORFLOW_USE_SYCL
 
@@ -551,7 +562,7 @@ REGISTER_SYCL_HOST_KERNEL(string);
                           ExitOp)
 
 REGISTER_GPU_HOST_KERNEL(int32);
-REGISTER_GPU_HOST_KERNEL(string);
+REGISTER_GPU_HOST_KERNEL(tstring);
 REGISTER_GPU_HOST_KERNEL(ResourceHandle);
 
 #undef REGISTER_GPU_HOST_KERNEL
@@ -565,6 +576,8 @@ void NextIterationOp::Compute(OpKernelContext* context) {
 }
 
 REGISTER_KERNEL_BUILDER(Name("NextIteration").Device(DEVICE_DEFAULT),
+                        NextIterationOp);
+REGISTER_KERNEL_BUILDER(Name("NextIteration").Device(DEVICE_TPU_SYSTEM),
                         NextIterationOp);
 REGISTER_KERNEL_BUILDER(Name("RefNextIteration").Device(DEVICE_CPU),
                         NextIterationOp);
@@ -601,7 +614,7 @@ TF_CALL_variant(REGISTER_GPU_KERNEL);
                           NextIterationOp)
 
 REGISTER_GPU_HOST_KERNEL(int32);
-REGISTER_GPU_HOST_KERNEL(string);
+REGISTER_GPU_HOST_KERNEL(tstring);
 REGISTER_GPU_HOST_KERNEL(ResourceHandle);
 
 #undef REGISTER_GPU_HOST_KERNEL
@@ -634,7 +647,7 @@ TF_CALL_NUMBER_TYPES_NO_INT32(REGISTER_SYCL_KERNEL);
                           NextIterationOp)
 
 REGISTER_SYCL_HOST_KERNEL(int32);
-REGISTER_SYCL_HOST_KERNEL(string);
+REGISTER_SYCL_HOST_KERNEL(tstring);
 #undef REGISTER_SYCL_HOST_KERNEL
 #endif  // TENSORFLOW_USE_SYCL
 
@@ -660,9 +673,16 @@ REGISTER_KERNEL_BUILDER(Name("LoopCond")
                             .HostMemory("input")
                             .HostMemory("output"),
                         LoopCondOp);
+REGISTER_KERNEL_BUILDER(Name("LoopCond")
+                            .Device(DEVICE_TPU_SYSTEM)
+                            .HostMemory("input")
+                            .HostMemory("output"),
+                        LoopCondOp);
 
 // ControlTrigger kernel
 REGISTER_KERNEL_BUILDER(Name("ControlTrigger").Device(DEVICE_DEFAULT),
+                        ControlTriggerOp);
+REGISTER_KERNEL_BUILDER(Name("ControlTrigger").Device(DEVICE_TPU_SYSTEM),
                         ControlTriggerOp);
 
 // When called, abort op will abort the current process. This can be used to

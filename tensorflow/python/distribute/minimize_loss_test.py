@@ -20,21 +20,24 @@ from __future__ import print_function
 
 from absl.testing import parameterized
 import numpy
+
 from tensorflow.python.data.ops import dataset_ops
 from tensorflow.python.distribute import combinations
 from tensorflow.python.distribute import reduce_util
 from tensorflow.python.distribute import strategy_combinations
+from tensorflow.python.distribute import strategy_test_lib
 from tensorflow.python.distribute.single_loss_example import batchnorm_example
 from tensorflow.python.distribute.single_loss_example import minimize_loss_example
 from tensorflow.python.eager import context
 from tensorflow.python.eager import test
 from tensorflow.python.framework import constant_op
+from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
-from tensorflow.python.keras.optimizer_v2 import optimizer_v2
-from tensorflow.python.layers import core
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.ops import control_flow_v2_toggles
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import nn_ops
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.ops import variables as variables_lib
 from tensorflow.python.ops.losses import losses_impl
@@ -43,7 +46,11 @@ from tensorflow.python.ops.losses import losses_impl
 VAR_MAP_V1 = {
     "GradientDescent": ("dense/kernel", "dense/bias"),
     "Adagrad": ("dense/kernel/Adagrad", "dense/kernel", "dense/bias/Adagrad",
-                "dense/bias")
+                "dense/bias"),
+    "Ftrl": ("dense/kernel/Ftrl", "dense/kernel", "dense/bias/Ftrl",
+             "dense/bias", "dense/kernel/Ftrl_1", "dense/bias/Ftrl_1"),
+    "RMSProp": ("dense/kernel", "dense/bias/RMSProp", "dense/bias/RMSProp_1",
+                "dense/bias", "dense/kernel/RMSProp_1", "dense/kernel/RMSProp")
 }
 
 VAR_MAP_V2 = {
@@ -60,7 +67,7 @@ class MinimizeLossStepTest(test.TestCase, parameterized.TestCase):
 
   def _get_iterator(self, strategy, input_fn):
     iterator = strategy.make_input_fn_iterator(lambda _: input_fn())
-    self.evaluate(iterator.initialize())
+    self.evaluate(iterator.initializer)
     return iterator
 
   @combinations.generate(
@@ -161,11 +168,14 @@ class MinimizeLossStepTest(test.TestCase, parameterized.TestCase):
               optimizer_fn=strategy_combinations.optimizers_v1_and_v2,
               mode=["graph"]))
   def testOptimizerInsideModelFn(self, distribution, optimizer_fn):
+    if (not context.executing_eagerly() and
+        control_flow_v2_toggles.control_flow_v2_enabled()):
+      self.skipTest("b/138751864")
     created_variables = []
     trainable_variables = []
 
-    def appending_creator(next_creator, *args, **kwargs):
-      v = next_creator(*args, **kwargs)
+    def appending_creator(next_creator, **kwargs):
+      v = next_creator(**kwargs)
       created_variables.append(v.name)
       if "trainable" in kwargs and kwargs["trainable"]:
         trainable_variables.append(v.name)
@@ -200,7 +210,7 @@ class MinimizeLossStepTest(test.TestCase, parameterized.TestCase):
       def get_expected_variables(num_parameter_devices):
         name = optimizer._name
 
-        if isinstance(optimizer, optimizer_v2.OptimizerV2):
+        if strategy_test_lib.is_optimizer_v2_instance(optimizer):
           variables = VAR_MAP_V2[name]
         else:
           variables = VAR_MAP_V1[name]
@@ -211,7 +221,7 @@ class MinimizeLossStepTest(test.TestCase, parameterized.TestCase):
             for replica in range(1, num_parameter_devices)
         ]
         variables = list(variables) + extended_variables
-        return set([v + ":0" for v in variables])
+        return set(v + ":0" for v in variables)
 
       self.assertEqual(
           get_expected_variables(len(distribution.extended.parameter_devices)),
@@ -341,7 +351,7 @@ class MinimizeLossStepTest(test.TestCase, parameterized.TestCase):
 
         optimizer = optimizer_fn()  # GradientDescent with 0.2 learning rate
 
-        if isinstance(optimizer, optimizer_v2.OptimizerV2):
+        if strategy_test_lib.is_optimizer_v2_instance(optimizer):
           return optimizer.minimize(loss_fn, [w])
         else:
           if use_callable_loss:
@@ -388,17 +398,17 @@ class MinimizeLossStepTest(test.TestCase, parameterized.TestCase):
       #   predict = [4, 14]
       #   predict - y = [-2, -7]
       #   dloss/dw = 2 <[2, 7], [-2, -7]> = - 2(4 + 49) = -106
-      # So unreplicated the update to w with lr=0.2 is -0.2 * -106 = 21.2
-      # with sum loss reduction, or 10.6 with mean.
+      # So unreplicated the update to w with lr=0.001 is -0.2 * -106 = 0.106
+      # with sum loss reduction, or 0.053 with mean.
       if loss_reduction == losses_impl.Reduction.SUM:
         # Note that the "distribution.num_replicas_in_sync" factor will go away
         # once we split the input across replicas, instead of pulling a complete
         # batch of input per replica.
-        self.assertNear(weight, 2 + 21.2 * distribution.num_replicas_in_sync,
+        self.assertNear(weight, 2 + 0.106 * distribution.num_replicas_in_sync,
                         0.0001)
       else:
         # One of the mean loss reductions.
-        self.assertNear(weight, 2 + 10.6, 0.0001)
+        self.assertNear(weight, 2 + 0.053, 0.0001)
 
   @combinations.generate(
       combinations.times(
@@ -418,7 +428,11 @@ class MinimizeLossStepTest(test.TestCase, parameterized.TestCase):
         return dataset.batch(batch_size=1, drop_remainder=True)
 
       optimizer = optimizer_fn()
-      layer = core.Dense(1, use_bias=True)
+      kernel = strategy_test_lib.create_variable_like_keras_layer(
+          "kernel", (1, 1), dtypes.float32)
+      bias = strategy_test_lib.create_variable_like_keras_layer(
+          "bias", (1,), dtypes.float32)
+      # layer = core.Dense(1, use_bias=True)
 
       key1 = "foo"
       value1 = "bar"
@@ -426,12 +440,13 @@ class MinimizeLossStepTest(test.TestCase, parameterized.TestCase):
       def model_fn(output_context, x):
         """A very simple model written by the user."""
         def loss_fn():
-          y = array_ops.reshape(layer(x), []) - constant_op.constant(1.)
+          y = array_ops.reshape(nn_ops.bias_add(
+              math_ops.matmul(x, kernel), bias), []) - constant_op.constant(1.)
           return y * y
 
-        if isinstance(optimizer, optimizer_v2.OptimizerV2):
+        if strategy_test_lib.is_optimizer_v2_instance(optimizer):
           train_op = optimizer.minimize(
-              loss_fn, lambda: layer.trainable_variables)
+              loss_fn, lambda: [kernel, bias])
         else:
           train_op = optimizer.minimize(loss_fn)
         loss = loss_fn()
@@ -500,8 +515,8 @@ class MinimizeLossStepTest(test.TestCase, parameterized.TestCase):
       for _ in range(5):
         _, loss = run_step()
         losses.append(loss)
-        weights.append(self.evaluate(layer.kernel))
-        biases.append(self.evaluate(layer.bias))
+        weights.append(self.evaluate(kernel))
+        biases.append(self.evaluate(bias))
 
       loss_is_not_increasing = all(y <= x for x, y in zip(losses, losses[1:]))
       self.assertTrue(loss_is_not_increasing)
@@ -524,6 +539,19 @@ class MinimizeLossStepTest(test.TestCase, parameterized.TestCase):
       loss_tensor = unwrapped_output[0]
     self.assertEqual(initial_loss.dtype, loss_tensor.dtype)
     self.assertEqual(initial_loss.shape, loss_tensor.shape)
+
+  @combinations.generate(
+      strategy_combinations.distributions_and_v2_optimizers())
+  def test_empty_var_list(self, distribution, optimizer_fn):
+    opt = optimizer_fn()
+    with distribution.scope():
+
+      def run_fn():
+        opt.minimize(lambda: constant_op.constant(1.), [])
+        opt.apply_gradients([])
+
+      distribution.run(run_fn)
+
 
 if __name__ == "__main__":
   test.main()

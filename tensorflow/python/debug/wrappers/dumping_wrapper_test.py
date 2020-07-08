@@ -19,7 +19,6 @@ from __future__ import print_function
 
 import glob
 import os
-import shutil
 import tempfile
 import threading
 
@@ -32,6 +31,7 @@ from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import test_util
+from tensorflow.python.lib.io import file_io
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import state_ops
 from tensorflow.python.ops import variables
@@ -61,7 +61,7 @@ class DumpingDebugWrapperSessionTest(test_util.TensorFlowTestCase):
   def tearDown(self):
     ops.reset_default_graph()
     if os.path.isdir(self.session_root):
-      shutil.rmtree(self.session_root)
+      file_io.delete_recursively(self.session_root)
 
   def _assert_correct_run_subdir_naming(self, run_subdir):
     self.assertStartsWith(run_subdir, "run_")
@@ -73,7 +73,7 @@ class DumpingDebugWrapperSessionTest(test_util.TensorFlowTestCase):
     os.mkdir(dir_path)
     self.assertTrue(os.path.isdir(dir_path))
 
-    with self.assertRaisesRegexp(
+    with self.assertRaisesRegex(
         ValueError, "session_root path points to a non-empty directory"):
       dumping_wrapper.DumpingDebugWrapperSession(
           session.Session(), session_root=self.session_root, log_usage=False)
@@ -83,8 +83,8 @@ class DumpingDebugWrapperSessionTest(test_util.TensorFlowTestCase):
     open(file_path, "a").close()  # Create the file
     self.assertTrue(gfile.Exists(file_path))
     self.assertFalse(gfile.IsDirectory(file_path))
-    with self.assertRaisesRegexp(ValueError,
-                                 "session_root path points to a file"):
+    with self.assertRaisesRegex(ValueError,
+                                "session_root path points to a file"):
       dumping_wrapper.DumpingDebugWrapperSession(
           session.Session(), session_root=file_path, log_usage=False)
 
@@ -161,7 +161,7 @@ class DumpingDebugWrapperSessionTest(test_util.TensorFlowTestCase):
 
   def testUsingNonCallableAsWatchFnRaisesTypeError(self):
     bad_watch_fn = "bad_watch_fn"
-    with self.assertRaisesRegexp(TypeError, "watch_fn is not callable"):
+    with self.assertRaisesRegex(TypeError, "watch_fn is not callable"):
       dumping_wrapper.DumpingDebugWrapperSession(
           self.sess,
           session_root=self.session_root,

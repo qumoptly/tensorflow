@@ -66,7 +66,7 @@ void PopulateTensorFromExtra(const RecvBufRespExtra& extra,
                              Tensor* cpu_tensor) {
   char* head = reinterpret_cast<char*>(DMAHelper::base(cpu_tensor));
   for (const auto& tensor_content_chunk : extra.tensor_content()) {
-    memcpy(head, tensor_content_chunk.data(),
+    memcpy(head, std::string(tensor_content_chunk).data(),
            tensor_content_chunk.size());
     head += tensor_content_chunk.size();
   }
@@ -129,6 +129,10 @@ void CollectiveRemoteAccessDistributed::RecvFromPeer(
         }
         AllocatorAttributes cpu_attr;
         cpu_attr.set_gpu_compatible(true);
+        ScopedMemoryDebugAnnotation op_annotation(
+            "CollectiveRemoteAccessDistributed::RecvFromPeer"
+            "::recv_buf_callback",
+            step_id_, "dynamic", to_tensor->dtype(), &to_tensor->shape());
         Tensor* cpu_tensor = new Tensor(cpu_dev->GetAllocator(cpu_attr),
                                         to_tensor->dtype(), to_tensor->shape());
         PopulateTensorFromExtra(extra, cpu_tensor);
@@ -137,11 +141,11 @@ void CollectiveRemoteAccessDistributed::RecvFromPeer(
                            nullptr /*send_dev_ctx*/, to_device_ctx, cpu_dev,
                            to_device, cpu_attr, to_alloc_attr, cpu_tensor,
                            to_tensor, dev_to_dev_stream_index,
-                           [cpu_tensor, done](const Status& s) {
+                           [this, cpu_tensor, done](const Status& s) {
                              delete cpu_tensor;
                              // This callback must not block, so execute
                              // done in another thread.
-                             SchedClosure([s, done] { done(s); });
+                             RunClosure([s, done] { done(s); });
                            });
         delete state;
         return;

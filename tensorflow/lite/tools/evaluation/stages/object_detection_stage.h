@@ -20,6 +20,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/container/flat_hash_map.h"
+#include "tensorflow/lite/tools/evaluation/evaluation_delegate_provider.h"
 #include "tensorflow/lite/tools/evaluation/evaluation_stage.h"
 #include "tensorflow/lite/tools/evaluation/proto/evaluation_config.pb.h"
 #include "tensorflow/lite/tools/evaluation/proto/evaluation_stages.pb.h"
@@ -43,7 +44,8 @@ class ObjectDetectionStage : public EvaluationStage {
   explicit ObjectDetectionStage(const EvaluationStageConfig& config)
       : EvaluationStage(config) {}
 
-  TfLiteStatus Init() override;
+  TfLiteStatus Init() override { return Init(nullptr); }
+  TfLiteStatus Init(const DelegateProviders* delegate_providers);
 
   TfLiteStatus Run() override;
 
@@ -70,13 +72,22 @@ class ObjectDetectionStage : public EvaluationStage {
     return inference_stage_.get();
   }
 
+  // Returns a const pointer to the latest inference output.
+  const ObjectDetectionResult* GetLatestPrediction() {
+    return &predicted_objects_;
+  }
+
  private:
   const std::vector<std::string>* all_labels_ = nullptr;
   std::unique_ptr<ImagePreprocessingStage> preprocessing_stage_;
   std::unique_ptr<TfliteInferenceStage> inference_stage_;
   std::unique_ptr<ObjectDetectionAveragePrecisionStage> eval_stage_;
   std::string image_path_;
+
+  // Obtained from SetInputs(...).
   const ObjectDetectionResult* ground_truth_objects_;
+  // Reflects the outputs generated from the latest call to Run().
+  ObjectDetectionResult predicted_objects_;
 };
 
 // Reads a tflite::evaluation::ObjectDetectionGroundTruth instance from a
@@ -86,7 +97,7 @@ class ObjectDetectionStage : public EvaluationStage {
 // preprocess_coco_minival.py script in evaluation/tasks/coco_object_detection.
 // Useful for wrappers/scripts that use ObjectDetectionStage.
 TfLiteStatus PopulateGroundTruth(
-    const std::string& grouth_truth_pbtxt_file,
+    const std::string& grouth_truth_proto_file,
     absl::flat_hash_map<std::string, ObjectDetectionResult>*
         ground_truth_mapping);
 

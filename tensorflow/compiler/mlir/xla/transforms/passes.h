@@ -16,18 +16,42 @@ limitations under the License.
 #ifndef TENSORFLOW_COMPILER_MLIR_XLA_TRANSFORMS_PASSES_H_
 #define TENSORFLOW_COMPILER_MLIR_XLA_TRANSFORMS_PASSES_H_
 
+#include <memory>
+
+#include "mlir/Support/LogicalResult.h"  // from @llvm-project
+
 namespace mlir {
-class FunctionPassBase;
 
-namespace XLA {
+class FuncOp;
+class ModuleOp;
+class Operation;
+template <typename T>
+class OperationPass;
+class Pass;
 
-/// Lowers from TF dialect to XLA dialect.
-FunctionPassBase *createLegalizeTFPass();
+namespace mhlo {
 
-// Lowers from XLA dialect to Standard dialect.
-FunctionPassBase *createLegalizeToStdPass();
+/// Lowers from TF dialect to HLO dialect. When allow_partial_conversion is
+/// false, emits an error if there is any operation that can't be legalized.
+std::unique_ptr<OperationPass<FuncOp>> createLegalizeTFPass(
+    bool allow_partial_conversion = false, bool legalize_chlo = true);
 
-}  // end namespace XLA
-}  // end namespace mlir
+/// Lowers from TF dialect to HLO dialect using tf2xla op kernels for the
+/// specified device type.
+std::unique_ptr<OperationPass<FuncOp>> createLegalizeTfWithTf2XlaPass(
+    llvm::StringRef device_type);
+
+/// Lowers from TF dialect's control flow to HLO dialect's control flow.
+std::unique_ptr<OperationPass<ModuleOp>> createLegalizeTFControlFlowPass();
+
+/// Converts the provided Operation as well as all nested operations into HLO
+/// dialect using the conversion patterns registered by the HLO dialect. When
+/// allow_partial_conversion is false, emits an error if there is any operation
+/// that can't be legalized.
+LogicalResult legalizeTF(Operation* op, bool allow_partial_conversion = false,
+                         bool legalize_chlo = true);
+
+}  // namespace mhlo
+}  // namespace mlir
 
 #endif  // TENSORFLOW_COMPILER_MLIR_XLA_TRANSFORMS_PASSES_H_

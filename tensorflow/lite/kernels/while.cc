@@ -12,16 +12,21 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#include "flatbuffers/flexbuffers.h"  // TF:flatbuffers
+
+#include <stddef.h>
+
+#include <cstring>
+#include <vector>
+
 #include "tensorflow/lite/c/builtin_op_data.h"
-#include "tensorflow/lite/c/c_api_internal.h"
+#include "tensorflow/lite/c/common.h"
 #include "tensorflow/lite/context_util.h"
 #include "tensorflow/lite/core/subgraph.h"
 #include "tensorflow/lite/kernels/kernel_util.h"
 
 namespace tflite {
 namespace ops {
-namespace custom {
+namespace builtin {
 namespace while_kernel {
 
 namespace {
@@ -85,7 +90,7 @@ TfLiteStatus CopyTensorsData(TfLiteContext* context, Subgraph* src_subgraph,
 TfLiteStatus CheckCondOutput(TfLiteContext* context,
                              const TfLiteTensor* cond_output) {
   // The condition output must be a single boolean value.
-  TF_LITE_ENSURE_EQ(context, cond_output->type, kTfLiteBool);
+  TF_LITE_ENSURE_TYPES_EQ(context, cond_output->type, kTfLiteBool);
   if (cond_output->dims->size == 0) {
     // It's okay if it's a 0D scalar.
     return kTfLiteOk;
@@ -107,10 +112,9 @@ struct OpData {
 
 void* Init(TfLiteContext* context, const char* buffer, size_t length) {
   auto* op_data = new OpData;
-  const uint8_t* buffer_t = reinterpret_cast<const uint8_t*>(buffer);
-  const flexbuffers::Map& m = flexbuffers::GetRoot(buffer_t, length).AsMap();
-  op_data->cond_subgraph_index = m["cond_subgraph_index"].AsInt32();
-  op_data->body_subgraph_index = m["body_subgraph_index"].AsInt32();
+  const auto* params = reinterpret_cast<const TfLiteWhileParams*>(buffer);
+  op_data->cond_subgraph_index = params->cond_subgraph_index;
+  op_data->body_subgraph_index = params->body_subgraph_index;
   op_data->cond_has_dynamic_output_tensors = false;
   op_data->body_has_dynamic_output_tensors = false;
   return op_data;
@@ -175,7 +179,7 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
           body_subgraph->tensor(body_subgraph->inputs()[i]);
       TfLiteTensor* body_output =
           body_subgraph->tensor(body_subgraph->outputs()[i]);
-      TF_LITE_ENSURE_EQ(context, body_input->type, body_output->type);
+      TF_LITE_ENSURE_TYPES_EQ(context, body_input->type, body_output->type);
 
       // TODO(ycling): Support dynamic sized body subgraph.
       TF_LITE_ENSURE(context, !IsDynamicTensor(body_output));
@@ -332,6 +336,6 @@ TfLiteRegistration* Register_WHILE() {
   return &r;
 }
 
-}  // namespace custom
+}  // namespace builtin
 }  // namespace ops
 }  // namespace tflite

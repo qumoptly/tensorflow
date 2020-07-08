@@ -148,7 +148,7 @@ class InputProducerTest(test_lib.TestCase):
   @test_util.run_deprecated_v1
   def testShapeError(self):
     input_tensor = array_ops.placeholder(dtypes.float32, None)
-    with self.assertRaisesRegexp(ValueError, "fully defined shape"):
+    with self.assertRaisesRegex(ValueError, "fully defined shape"):
       _ = inp.input_producer(input_tensor)
 
 
@@ -268,7 +268,7 @@ class StringInputProducerTest(test_lib.TestCase):
           # writing of the `tf.Graph` object. However, many users
           # write code this way, so we include this test to ensure
           # that we can support it.
-          self.assertEquals(string, self.evaluate(queue.dequeue()))
+          self.assertEqual(string, self.evaluate(queue.dequeue()))
       coord.request_stop()
       coord.join(threads)
 
@@ -401,7 +401,7 @@ class SliceInputProducerTest(test_lib.TestCase):
         frequency[e] = 0
       for _ in range(num_epochs):
         output = [self.evaluate(slices) for _ in range(len(source_strings))]
-        key = b",".join([s + compat.as_bytes(str(i)) for s, i in output])
+        key = b",".join(s + compat.as_bytes(str(i)) for s, i in output)
         self.assertIn(key, expected)
         frequency[key] += 1
 
@@ -440,23 +440,23 @@ class DictHelperTest(test_lib.TestCase):
   def testListInputs(self):
     l = [1, 2, 3, 11, 22, 33]
     l2 = inp._as_tensor_list(l)
-    self.assertEquals(l, l2)
+    self.assertEqual(l, l2)
     l3 = inp._as_original_type(l, l2)
-    self.assertEquals(l, l3)
+    self.assertEqual(l, l3)
 
   def testDictInputs(self):
     d = {"a": 1, "b": 2, "c": 3, "aa": 11, "bb": 22, "cc": 33}
     l = inp._as_tensor_list(d)
-    self.assertEquals([1, 11, 2, 22, 3, 33], l)
+    self.assertEqual([1, 11, 2, 22, 3, 33], l)
     d2 = inp._as_original_type(d, l)
-    self.assertEquals(d, d2)
+    self.assertEqual(d, d2)
 
   def testHeterogeneousKeysDictInputs(self):
     d = {"z": 1, 1: 42, ("a", "b"): 100}
     l = inp._as_tensor_list(d)
-    self.assertEquals([100, 42, 1], l)
+    self.assertEqual([100, 42, 1], l)
     d2 = inp._as_original_type(d, l)
-    self.assertEquals(d, d2)
+    self.assertEqual(d, d2)
 
 
 class BatchTest(test_lib.TestCase):
@@ -790,7 +790,7 @@ class BatchTest(test_lib.TestCase):
   def testCannotInferRankError(self):
     with self.cached_session():
       x = array_ops.placeholder(dtype=dtypes.int64)
-      with self.assertRaisesRegexp(ValueError, "Cannot infer Tensor's rank"):
+      with self.assertRaisesRegex(ValueError, "Cannot infer Tensor's rank"):
         inp.batch([x], batch_size=2)
 
   @test_util.run_deprecated_v1
@@ -900,20 +900,20 @@ class BatchTest(test_lib.TestCase):
   @test_util.run_deprecated_v1
   def testInvalidKeepInputVector(self):
     # Can't have vector `keep_input` with `enqueue_many=False`.
-    with self.assertRaisesRegexp(ValueError, "`keep_input` cannot be a vector"):
+    with self.assertRaisesRegex(ValueError, "`keep_input` cannot be a vector"):
       inp.maybe_batch([array_ops.zeros(5)],
                       keep_input=constant_op.constant([True, False]),
                       batch_size=1,
                       enqueue_many=False)
     # Can't have `keep_input` with more than one dimension.
-    with self.assertRaisesRegexp(ValueError, "must be 0 or 1 dimensions"):
+    with self.assertRaisesRegex(ValueError, "must be 0 or 1 dimensions"):
       inp.maybe_batch([array_ops.zeros(5)],
                       keep_input=constant_op.constant([[True], [False]]),
                       batch_size=1,
                       enqueue_many=True)
     # `keep_input` must have dimensions determined at graph construction.
-    with self.assertRaisesRegexp(ValueError,
-                                 "must be known at graph construction"):
+    with self.assertRaisesRegex(ValueError,
+                                "must be known at graph construction"):
       inp.maybe_batch([array_ops.zeros(5)],
                       keep_input=array_ops.placeholder(dtypes.bool),
                       batch_size=1,
@@ -1083,7 +1083,7 @@ class BatchJoinTest(test_lib.TestCase):
         self.assertEqual(len(which_a) + len(which_b), batch_size)
         if which_a and which_b:
           saw_both += 1
-        all_a.extend([results[0][i] for i in which_a])
+        all_a.extend(results[0][i] for i in which_a)
         seen_b += len(which_b)
         self.assertAllEqual([99] * len(which_b),
                             [results[0][i] for i in which_b])
@@ -1114,7 +1114,7 @@ class BatchJoinTest(test_lib.TestCase):
 
   @test_util.run_deprecated_v1
   def testMismatchedDictKeys(self):
-    with self.assertRaisesRegexp(ValueError, "must have the same keys"):
+    with self.assertRaisesRegex(ValueError, "must have the same keys"):
       inp.batch_join(
           [{
               "c": 12,
@@ -1185,7 +1185,7 @@ class BatchJoinTest(test_lib.TestCase):
         self.assertEqual(len(which_a) + len(which_b), batch_size)
         if which_a and which_b:
           saw_both += 1
-        all_a.extend([results[0][i] for i in which_a])
+        all_a.extend(results[0][i] for i in which_a)
         seen_b += len(which_b)
         self.assertAllEqual([99] * len(which_b),
                             [results[0][i] for i in which_b])
@@ -1271,7 +1271,7 @@ class BatchJoinTest(test_lib.TestCase):
         self.assertEqual(len(which_a) + len(which_b), batch_size)
         if which_a and which_b:
           saw_both += 1
-        all_a.extend([results[0][i] for i in which_a])
+        all_a.extend(results[0][i] for i in which_a)
         seen_b += len(which_b)
         self.assertAllEqual([99] * len(which_b),
                             [results[0][i] for i in which_b])
@@ -1291,7 +1291,7 @@ class BatchJoinTest(test_lib.TestCase):
       self.assertEqual(len(which_a) + len(which_b), 2 * extra_elements)
       if which_a and which_b:
         saw_both += 1
-      all_a.extend([results[0][i] for i in which_a])
+      all_a.extend(results[0][i] for i in which_a)
       seen_b += len(which_b)
 
       # We'd like to see some minimum level of mixing of the results of both
@@ -1369,7 +1369,7 @@ class BatchJoinTest(test_lib.TestCase):
         self.assertEqual(len(which_a) + len(which_b), batch_size)
         if which_a and which_b:
           saw_both += 1
-        all_a.extend([results[0][i] for i in which_a])
+        all_a.extend(results[0][i] for i in which_a)
         seen_b += len(which_b)
         self.assertAllEqual([99] * len(which_b),
                             [results[0][i] for i in which_b])
@@ -1389,7 +1389,7 @@ class BatchJoinTest(test_lib.TestCase):
       self.assertEqual(len(which_a) + len(which_b), 2 * extra_elements)
       if which_a and which_b:
         saw_both += 1
-      all_a.extend([results[0][i] for i in which_a])
+      all_a.extend(results[0][i] for i in which_a)
       seen_b += len(which_b)
 
       # We'd like to see some minimum level of mixing of the results of both
@@ -1437,7 +1437,7 @@ class BatchJoinTest(test_lib.TestCase):
   def testCannotInferRankError(self):
     with self.cached_session():
       x = array_ops.placeholder(dtype=dtypes.int64)
-      with self.assertRaisesRegexp(ValueError, "Cannot infer Tensor's rank"):
+      with self.assertRaisesRegex(ValueError, "Cannot infer Tensor's rank"):
         inp.batch_join([[x]], batch_size=2)
 
   @test_util.run_deprecated_v1
@@ -1514,20 +1514,20 @@ class BatchJoinTest(test_lib.TestCase):
   @test_util.run_deprecated_v1
   def testInvalidKeepInputVector(self):
     # Can't have vector `keep_input` with `enqueue_many=False`.
-    with self.assertRaisesRegexp(ValueError, "`keep_input` cannot be a vector"):
+    with self.assertRaisesRegex(ValueError, "`keep_input` cannot be a vector"):
       inp.maybe_batch_join([[array_ops.zeros(5)]],
                            keep_input=constant_op.constant([True, False]),
                            batch_size=1,
                            enqueue_many=False)
     # Can't have `keep_input` with more than one dimension.
-    with self.assertRaisesRegexp(ValueError, "must be 0 or 1 dimensions"):
+    with self.assertRaisesRegex(ValueError, "must be 0 or 1 dimensions"):
       inp.maybe_batch_join([[array_ops.zeros(5)]],
                            keep_input=constant_op.constant([[True], [False]]),
                            batch_size=1,
                            enqueue_many=True)
     # `keep_input` must have dimensions determined at graph construction.
-    with self.assertRaisesRegexp(ValueError,
-                                 "must be known at graph construction"):
+    with self.assertRaisesRegex(ValueError,
+                                "must be known at graph construction"):
       inp.maybe_batch_join([[array_ops.zeros(5)]],
                            keep_input=array_ops.placeholder(dtypes.bool),
                            batch_size=1,
@@ -1937,18 +1937,18 @@ class ShuffleBatchTest(test_lib.TestCase):
   @test_util.run_deprecated_v1
   def testInvalidKeepInputVector(self):
     # Can't have vector `keep_input` with `enqueue_many=False`.
-    with self.assertRaisesRegexp(ValueError, "`keep_input` cannot be a vector"):
+    with self.assertRaisesRegex(ValueError, "`keep_input` cannot be a vector"):
       inp.maybe_shuffle_batch([array_ops.zeros(5)], 1, 10, 1,
                               keep_input=constant_op.constant([True, False]),
                               enqueue_many=False)
     # Can't have `keep_input` with more than one dimension.
-    with self.assertRaisesRegexp(ValueError, "must be 0 or 1 dimensions"):
+    with self.assertRaisesRegex(ValueError, "must be 0 or 1 dimensions"):
       inp.maybe_shuffle_batch([array_ops.zeros(5)], 1, 10, 1,
                               keep_input=constant_op.constant([[True]]),
                               enqueue_many=True)
     # `keep_input` must have dimensions determined at graph construction.
-    with self.assertRaisesRegexp(ValueError,
-                                 "must be known at graph construction"):
+    with self.assertRaisesRegex(ValueError,
+                                "must be known at graph construction"):
       inp.maybe_shuffle_batch([array_ops.zeros(5)], 1, 10, 1,
                               keep_input=array_ops.placeholder(dtypes.bool),
                               enqueue_many=True)
@@ -2099,7 +2099,7 @@ class ShuffleBatchJoinTest(test_lib.TestCase):
         self.assertEqual(len(which_a) + len(which_b), batch_size)
         if which_a and which_b:
           saw_both += 1
-        all_a.extend([results[0][i] for i in which_a])
+        all_a.extend(results[0][i] for i in which_a)
         seen_b += len(which_b)
         self.assertAllEqual([99] * len(which_b),
                             [results[0][i] for i in which_b])
@@ -2194,7 +2194,7 @@ class ShuffleBatchJoinTest(test_lib.TestCase):
         self.assertEqual(len(which_a) + len(which_b), batch_size)
         if which_a and which_b:
           saw_both += 1
-        all_a.extend([results[0][i] for i in which_a])
+        all_a.extend(results[0][i] for i in which_a)
         seen_b += len(which_b)
         self.assertAllEqual([99] * len(which_b),
                             [results[0][i] for i in which_b])
@@ -2213,7 +2213,7 @@ class ShuffleBatchJoinTest(test_lib.TestCase):
       self.assertEqual(len(which_a) + len(which_b), 2 * extra_elements)
       if which_a and which_b:
         saw_both += 1
-      all_a.extend([results[0][i] for i in which_a])
+      all_a.extend(results[0][i] for i in which_a)
       seen_b += len(which_b)
 
       # Some minimum level of mixing of the results of both threads.
@@ -2233,7 +2233,7 @@ class ShuffleBatchJoinTest(test_lib.TestCase):
 
   @test_util.run_deprecated_v1
   def testMismatchedDictKeys(self):
-    with self.assertRaisesRegexp(ValueError, "must have the same keys"):
+    with self.assertRaisesRegex(ValueError, "must have the same keys"):
       inp.shuffle_batch_join(
           [{
               "c": 12,
@@ -2341,20 +2341,20 @@ class ShuffleBatchJoinTest(test_lib.TestCase):
   @test_util.run_deprecated_v1
   def testInvalidKeepInputVector(self):
     # Can't have vector `keep_input` with `enqueue_many=False`.
-    with self.assertRaisesRegexp(ValueError, "`keep_input` cannot be a vector"):
+    with self.assertRaisesRegex(ValueError, "`keep_input` cannot be a vector"):
       inp.maybe_shuffle_batch_join(
           [[array_ops.zeros(5)]], 1, 10, 1,
           keep_input=constant_op.constant([True, False]),
           enqueue_many=False)
     # Can't have `keep_input` with more than one dimension.
-    with self.assertRaisesRegexp(ValueError, "must be 0 or 1 dimensions"):
+    with self.assertRaisesRegex(ValueError, "must be 0 or 1 dimensions"):
       inp.maybe_shuffle_batch_join(
           [[array_ops.zeros(5)]], 1, 10, 1,
           keep_input=constant_op.constant([[True]]),
           enqueue_many=True)
     # `keep_input` must have dimensions determined at graph construction.
-    with self.assertRaisesRegexp(ValueError,
-                                 "must be known at graph construction"):
+    with self.assertRaisesRegex(ValueError,
+                                "must be known at graph construction"):
       inp.maybe_shuffle_batch_join(
           [[array_ops.zeros(5)]], 1, 10, 1,
           keep_input=array_ops.placeholder(dtypes.bool),

@@ -13,15 +13,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <string.h>
-#include <cmath>
+#include <stdint.h>
+
+#include <algorithm>
+#include <string>
 #include <vector>
-#include "tensorflow/lite/c/builtin_op_data.h"
-#include "tensorflow/lite/c/c_api_internal.h"
+
+#include "tensorflow/lite/c/common.h"
+#include "tensorflow/lite/kernels/internal/compatibility.h"
 #include "tensorflow/lite/kernels/internal/optimized/optimized_ops.h"
+#include "tensorflow/lite/kernels/internal/reference/reference_ops.h"
 #include "tensorflow/lite/kernels/internal/tensor.h"
+#include "tensorflow/lite/kernels/internal/tensor_ctypes.h"
+#include "tensorflow/lite/kernels/internal/types.h"
 #include "tensorflow/lite/kernels/kernel_util.h"
-#include "tensorflow/lite/kernels/op_macros.h"
+#include "tensorflow/lite/string_type.h"
 
 namespace tflite {
 namespace ops {
@@ -43,10 +49,11 @@ constexpr int kOutputTensor = 0;
 const int kMaxDim = 4;
 
 template <typename T>
-TfLiteStatus CalculateOutputShapeVector(
-    TfLiteContext* context, const TfLiteTensor* input,
-    const TfLiteTensor* begin, const TfLiteTensor* size,
-    std::vector<int64_t>* output_shape_vector) {
+TfLiteStatus CalculateOutputShapeVector(TfLiteContext* context,
+                                        const TfLiteTensor* input,
+                                        const TfLiteTensor* begin,
+                                        const TfLiteTensor* size,
+                                        std::vector<int>* output_shape_vector) {
   for (int idx = 0; idx < NumDimensions(input); ++idx) {
     T size_value = GetTensorData<T>(size)[idx];
     if (size_value < 0) {
@@ -62,7 +69,7 @@ TfLiteStatus CalculateOutputShapeVector(
         return kTfLiteError;
       }
     }
-    output_shape_vector->push_back(size_value);
+    output_shape_vector->push_back(static_cast<int>(size_value));
   }
   return kTfLiteOk;
 }
@@ -81,7 +88,7 @@ TfLiteStatus ResizeOutputShape(TfLiteContext* context,
                                const TfLiteTensor* input,
                                const TfLiteTensor* begin,
                                const TfLiteTensor* size, TfLiteTensor* output) {
-  std::vector<int64_t> output_shape_vector;
+  std::vector<int> output_shape_vector;
 
   if (begin->type == kTfLiteInt32) {
     TF_LITE_ENSURE_STATUS(CalculateOutputShapeVector<int32_t>(

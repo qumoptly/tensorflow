@@ -16,9 +16,8 @@ limitations under the License.
 
 #include <fstream>
 
-#include "google/protobuf/text_format.h"
 #include "tensorflow/core/platform/logging.h"
-#include "tensorflow/lite/c/c_api_internal.h"
+#include "tensorflow/lite/c/common.h"
 #include "tensorflow/lite/tools/evaluation/proto/evaluation_config.pb.h"
 #include "tensorflow/lite/tools/evaluation/proto/evaluation_stages.pb.h"
 #include "tensorflow/lite/tools/evaluation/utils.h"
@@ -26,7 +25,8 @@ limitations under the License.
 namespace tflite {
 namespace evaluation {
 
-TfLiteStatus ObjectDetectionStage::Init() {
+TfLiteStatus ObjectDetectionStage::Init(
+    const DelegateProviders* delegate_providers) {
   // Ensure inference params are provided.
   if (!config_.specification().has_object_detection_params()) {
     LOG(ERROR) << "ObjectDetectionParams not provided";
@@ -48,7 +48,7 @@ TfLiteStatus ObjectDetectionStage::Init() {
   *tflite_inference_config.mutable_specification()
        ->mutable_tflite_inference_params() = params.inference_params();
   inference_stage_.reset(new TfliteInferenceStage(tflite_inference_config));
-  TF_LITE_ENSURE_STATUS(inference_stage_->Init());
+  TF_LITE_ENSURE_STATUS(inference_stage_->Init(delegate_providers));
 
   // Validate model inputs.
   const TfLiteModelInfo* model_info = inference_stage_->GetModelInfo();
@@ -66,15 +66,11 @@ TfLiteStatus ObjectDetectionStage::Init() {
   }
 
   // ImagePreprocessingStage
-  EvaluationStageConfig preprocessing_config;
-  preprocessing_config.set_name("image_preprocessing");
-  auto* preprocess_params = preprocessing_config.mutable_specification()
-                                ->mutable_image_preprocessing_params();
-  preprocess_params->set_image_height(input_shape->data[1]);
-  preprocess_params->set_image_width(input_shape->data[2]);
-  preprocess_params->set_cropping_fraction(1.0);
-  preprocess_params->set_output_type(static_cast<int>(input_type));
-  preprocessing_stage_.reset(new ImagePreprocessingStage(preprocessing_config));
+  tflite::evaluation::ImagePreprocessingConfigBuilder builder(
+      "image_preprocessing", input_type);
+  builder.AddResizingStep(input_shape->data[2], input_shape->data[1], false);
+  builder.AddDefaultNormalizationStep();
+  preprocessing_stage_.reset(new ImagePreprocessingStage(builder.build()));
   TF_LITE_ENSURE_STATUS(preprocessing_stage_->Init());
 
   // ObjectDetectionAveragePrecisionStage
@@ -109,7 +105,7 @@ TfLiteStatus ObjectDetectionStage::Run() {
   TF_LITE_ENSURE_STATUS(inference_stage_->Run());
 
   // Convert model output to ObjectsSet.
-  ObjectDetectionResult predicted_objects;
+  predicted_objects_.Clear();
   const int class_offset =
       config_.specification().object_detection_params().class_offset();
   const std::vector<void*>* outputs = inference_stage_->GetOutputs();
@@ -119,7 +115,7 @@ TfLiteStatus ObjectDetectionStage::Run() {
   float* detected_label_probabilities = static_cast<float*>(outputs->at(2));
   for (int i = 0; i < num_detections; ++i) {
     const int bounding_box_offset = i * 4;
-    auto* object = predicted_objects.add_objects();
+    auto* object = predicted_objects_.add_objects();
     // Bounding box
     auto* bbox = object->mutable_bounding_box();
     bbox->set_normalized_top(detected_label_boxes[bounding_box_offset + 0]);
@@ -134,7 +130,7 @@ TfLiteStatus ObjectDetectionStage::Run() {
   }
 
   // AP Evaluation.
-  eval_stage_->SetEvalInputs(predicted_objects, *ground_truth_objects_);
+  eval_stage_->SetEvalInputs(predicted_objects_, *ground_truth_objects_);
   TF_LITE_ENSURE_STATUS(eval_stage_->Run());
 
   return kTfLiteOk;
@@ -161,7 +157,7 @@ EvaluationStageMetrics ObjectDetectionStage::LatestMetrics() {
 }
 
 TfLiteStatus PopulateGroundTruth(
-    const std::string& grouth_truth_pbtxt_file,
+    const std::string& grouth_truth_proto_file,
     absl::flat_hash_map<std::string, ObjectDetectionResult>*
         ground_truth_mapping) {
   if (ground_truth_mapping == nullptr) {
@@ -170,13 +166,14 @@ TfLiteStatus PopulateGroundTruth(
   ground_truth_mapping->clear();
 
   // Read the ground truth dump.
-  std::ifstream t(grouth_truth_pbtxt_file);
+  std::ifstream t(grouth_truth_proto_file);
   std::string proto_str((std::istreambuf_iterator<char>(t)),
                         std::istreambuf_iterator<char>());
   ObjectDetectionGroundTruth ground_truth_proto;
-  proto2::TextFormat::ParseFromString(proto_str, &ground_truth_proto);
+  ground_truth_proto.ParseFromString(proto_str);
 
-  for (auto image_ground_truth : ground_truth_proto.detection_results()) {
+  for (const auto& image_ground_truth :
+       ground_truth_proto.detection_results()) {
     (*ground_truth_mapping)[image_ground_truth.image_name()] =
         image_ground_truth;
   }
